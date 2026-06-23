@@ -86,6 +86,7 @@ import com.oracle.svm.core.graal.code.SubstrateCallingConventionType;
 import com.oracle.svm.core.graal.meta.SubstrateRegisterConfig;
 import com.oracle.svm.shared.util.VMError;
 
+import jdk.graal.compiler.asm.amd64.AMD64BaseAssembler;
 import jdk.graal.compiler.core.common.LIRKind;
 import jdk.vm.ci.amd64.AMD64;
 import jdk.vm.ci.amd64.AMD64Kind;
@@ -126,10 +127,23 @@ public class SubstrateAMD64RegisterConfig implements SubstrateRegisterConfig {
         this.metaAccess = metaAccess;
         this.useBasePointer = useBasePointer;
 
-        boolean haveAVX512 = ((AMD64) target.arch).getFeatures().contains(AMD64.CPUFeature.AVX512F);
-        ArrayList<Register> regs;
-        if (haveAVX512) {
-            regs = new ArrayList<>();
+        /*
+         * Expose the AVX-512 high vector registers (xmm16-31) only under full AVX-512: EVEX - the
+         * only encoding that can address them - is used by the compiler only there (see
+         * AMD64BaseAssembler.supportsFullAVX512), and on AVX512F-only hardware the compiler emits
+         * VEX, which cannot encode them at any width, so exposing them would produce "illegal
+         * operand" failures.
+         *
+         * Opmask registers (k1-k7) are gated separately: they exist with AVX512F and the masked ops
+         * that use them gate on AVX512VL+BW (not DQ), so they are exposed whenever AVX512F is
+         * present, independently of the high vector registers. (Coupling them to full AVX-512 would
+         * leave masked ops with no allocatable opmask register on e.g. an AVX512F+VL+BW target
+         * without DQ.)
+         */
+        var features = ((AMD64) target.arch).getFeatures();
+        boolean haveHighVectorRegisters = AMD64BaseAssembler.supportsFullAVX512(features);
+        ArrayList<Register> regs = new ArrayList<>();
+        if (haveHighVectorRegisters) {
             regs.addAll(valueRegistersAVX512);
             /*
              * valueRegistersAVX512 contains all mask registers, including k0. k0 is not a general
@@ -138,11 +152,10 @@ public class SubstrateAMD64RegisterConfig implements SubstrateRegisterConfig {
              */
             regs.remove(k0);
         } else {
-            regs = new ArrayList<>();
             regs.addAll(valueRegistersSSE);
-            if (SubstrateUtil.HOSTED && RuntimeCompilation.isEnabled()) {
-                // The stub calling convention must be able to generate runtime checked code for
-                // saving and restoring mask registers.
+            // Opmask registers when AVX512F is present, or for runtime-checked masked code, where
+            // the stub calling convention must be able to save and restore them.
+            if (features.contains(AMD64.CPUFeature.AVX512F) || (SubstrateUtil.HOSTED && RuntimeCompilation.isEnabled())) {
                 regs.addAll(MASK_REGISTERS);
             }
         }

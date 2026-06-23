@@ -143,6 +143,10 @@ public class AMD64HotSpotBackendFactory extends HotSpotBackendFactory {
             callerSave.remove(AMD64.r13);
             callerSave.remove(AMD64.r14);
             callerSave.remove(AMD64.r15);
+            /*
+             * On Windows, xmm6-xmm15 are callee-saved; xmm16-xmm31 are volatile (caller-saved),
+             * so only remove the low vector registers.
+             */
             callerSave.remove(AMD64.xmm6);
             callerSave.remove(AMD64.xmm7);
             callerSave.remove(AMD64.xmm8);

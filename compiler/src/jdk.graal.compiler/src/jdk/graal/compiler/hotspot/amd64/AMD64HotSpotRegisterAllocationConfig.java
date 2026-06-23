@@ -53,8 +53,24 @@ import static jdk.vm.ci.amd64.AMD64.xmm12;
 import static jdk.vm.ci.amd64.AMD64.xmm13;
 import static jdk.vm.ci.amd64.AMD64.xmm14;
 import static jdk.vm.ci.amd64.AMD64.xmm15;
+import static jdk.vm.ci.amd64.AMD64.xmm16;
+import static jdk.vm.ci.amd64.AMD64.xmm17;
+import static jdk.vm.ci.amd64.AMD64.xmm18;
+import static jdk.vm.ci.amd64.AMD64.xmm19;
 import static jdk.vm.ci.amd64.AMD64.xmm2;
+import static jdk.vm.ci.amd64.AMD64.xmm20;
+import static jdk.vm.ci.amd64.AMD64.xmm21;
+import static jdk.vm.ci.amd64.AMD64.xmm22;
+import static jdk.vm.ci.amd64.AMD64.xmm23;
+import static jdk.vm.ci.amd64.AMD64.xmm24;
+import static jdk.vm.ci.amd64.AMD64.xmm25;
+import static jdk.vm.ci.amd64.AMD64.xmm26;
+import static jdk.vm.ci.amd64.AMD64.xmm27;
+import static jdk.vm.ci.amd64.AMD64.xmm28;
+import static jdk.vm.ci.amd64.AMD64.xmm29;
 import static jdk.vm.ci.amd64.AMD64.xmm3;
+import static jdk.vm.ci.amd64.AMD64.xmm30;
+import static jdk.vm.ci.amd64.AMD64.xmm31;
 import static jdk.vm.ci.amd64.AMD64.xmm4;
 import static jdk.vm.ci.amd64.AMD64.xmm5;
 import static jdk.vm.ci.amd64.AMD64.xmm6;
@@ -67,6 +83,7 @@ import java.util.BitSet;
 import java.util.List;
 
 import jdk.graal.compiler.core.common.alloc.RegisterAllocationConfig;
+import jdk.vm.ci.amd64.AMD64;
 import jdk.vm.ci.code.Register;
 import jdk.vm.ci.code.RegisterConfig;
 
@@ -82,11 +99,21 @@ class AMD64HotSpotRegisterAllocationConfig extends RegisterAllocationConfig {
      * Adopted from x86_64.ad.
      */
     // @formatter:off
-    static final Register[] registerAllocationOrder = {
+    private static final Register[] registerAllocationOrderBase = {
         r10, r11, r8, r9, r12, rcx, rbx, rdi, rdx, rsi, rax, rbp, r13, r14, /*r15,*/ /*rsp,*/
         /* r16, r17, r18, r19, r20, r21, r22, r23, r24, r25, r26, r27, r28, r29, r30, r31, // APX registers */
         xmm0, xmm1, xmm2,  xmm3,  xmm4,  xmm5,  xmm6,  xmm7,
         xmm8, xmm9, xmm10, xmm11, xmm12, xmm13, xmm14, xmm15,
+        k1, k2, k3, k4, k5, k6, k7
+    };
+
+    private static final Register[] registerAllocationOrderAVX512 = {
+        r10, r11, r8, r9, r12, rcx, rbx, rdi, rdx, rsi, rax, rbp, r13, r14, /*r15,*/ /*rsp,*/
+        /* r16, r17, r18, r19, r20, r21, r22, r23, r24, r25, r26, r27, r28, r29, r30, r31, // APX registers */
+        xmm0, xmm1, xmm2,  xmm3,  xmm4,  xmm5,  xmm6,  xmm7,
+        xmm8, xmm9, xmm10, xmm11, xmm12, xmm13, xmm14, xmm15,
+        xmm16, xmm17, xmm18, xmm19, xmm20, xmm21, xmm22, xmm23,
+        xmm24, xmm25, xmm26, xmm27, xmm28, xmm29, xmm30, xmm31,
         k1, k2, k3, k4, k5, k6, k7
     };
     // @formatter:on
@@ -96,6 +123,19 @@ class AMD64HotSpotRegisterAllocationConfig extends RegisterAllocationConfig {
     AMD64HotSpotRegisterAllocationConfig(RegisterConfig registerConfig, String[] allocationRestrictedTo, boolean preserveFramePointer) {
         super(registerConfig, allocationRestrictedTo);
         this.preserveFramePointer = preserveFramePointer;
+    }
+
+    private static Register[] registerAllocationOrder(RegisterConfig registerConfig) {
+        /*
+         * Use the extended order (xmm16-31) only when those registers are allocatable. HotSpot only
+         * exposes them under its full AVX-512 path (UseAVX=3), which is required because EVEX - the
+         * only encoding that can address xmm16-31 - is used by the compiler only under full AVX-512
+         * (see AMD64BaseAssembler.supportsFullAVX512).
+         */
+        if (registerConfig.getAllocatableRegisters().contains(AMD64.xmm16)) {
+            return registerAllocationOrderAVX512;
+        }
+        return registerAllocationOrderBase;
     }
 
     @Override
@@ -109,7 +149,7 @@ class AMD64HotSpotRegisterAllocationConfig extends RegisterAllocationConfig {
         }
 
         ArrayList<Register> allocatableRegisters = new ArrayList<>(registers.size());
-        for (Register reg : registerAllocationOrder) {
+        for (Register reg : registerAllocationOrder(registerConfig)) {
             if (regMap.get(reg.number)) {
                 allocatableRegisters.add(reg);
             }

@@ -121,9 +121,17 @@ public final class AMD64ArrayIndexOfOp extends AMD64ComplexVectorOp {
         this.searchValue4 = searchValue4;
 
         this.vectorKind = getVectorKind(stride);
-        this.vectorCompareVal = allocateVectorRegisters(tool, stride, variant.isTable() ? 2 : nValues);
-        this.vectorArray = allocateVectorRegisters(tool, stride, variant.isTable() ? stride.value : 4);
-        this.vectorTemp = allocateVectorRegisters(tool, stride, getNumberOfRequiredTempVectors(variant, nValues));
+        /*
+         * These temps feed VEX-only instructions (VPERM2I128, pcmpeq -> VPCMPEQ, pmovmsk ->
+         * VPMOVMSKB) which cannot encode xmm16-31; pin them to distinct xmm0-15 under full AVX-512.
+         * Under full AVX-512 all three arrays draw from the same 16-register xmm0-15 budget, so their
+         * combined count must stay <= 16 (currently at most ~14: Table uses 2 + stride.value + 4).
+         * allocateVectorRegisters enforces this and fails fast if a wider stride / larger nValues /
+         * extra temp pushes the total over.
+         */
+        this.vectorCompareVal = allocateVectorRegisters(tool, stride, variant.isTable() ? 2 : nValues, true);
+        this.vectorArray = allocateVectorRegisters(tool, stride, variant.isTable() ? stride.value : 4, true);
+        this.vectorTemp = allocateVectorRegisters(tool, stride, getNumberOfRequiredTempVectors(variant, nValues), true);
     }
 
     private static int getNumberOfRequiredTempVectors(LIRGeneratorTool.ArrayIndexOfVariant variant, int nValues) {

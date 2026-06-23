@@ -131,7 +131,8 @@ public class AMD64VectorShuffle {
                         yield new PermuteOp(result, source, indices, encoding);
                     } else {
                         yield switch (avxSize) {
-                            case YMM -> new PermuteOpWithTemps(gen, result, source, indices, encoding, 3, false);
+                            // The EVEX byte-permute path needs an opmask temp for the final blend.
+                            case YMM -> new PermuteOpWithTemps(gen, result, source, indices, encoding, 3, encoding == AMD64SIMDInstructionEncoding.EVEX);
                             case ZMM -> new PermuteOpWithTemps(gen, result, source, indices, encoding, 3, true);
                             default -> throw GraalError.shouldNotReachHereUnexpectedValue(avxSize);
                         };
@@ -303,19 +304,51 @@ public class AMD64VectorShuffle {
                     Register xtmp3Reg = asRegister(xtmps[2]);
                     GraalError.guarantee(!indexReg.equals(xtmp1Reg) && !indexReg.equals(xtmp2Reg), "cannot alias");
 
-                    // Find the elements that are collected from the first YMM half
-                    VexRVMIOp.VPERM2I128.emit(masm, YMM, xtmp1Reg, sourceReg, sourceReg, 0x00);
-                    VexRVMOp.VPSHUFB.encoding(encoding).emit(masm, YMM, xtmp1Reg, xtmp1Reg, indexReg);
+                    if (encoding == AMD64SIMDInstructionEncoding.EVEX) {
+                        /*
+                         * VPERM2I128 and VPBLENDVB have no EVEX-encoded form, so they cannot address
+                         * the AVX-512 high registers (xmm16-31) that the allocator may assign here.
+                         * Broadcast each 128-bit lane with VSHUFI64X2 and select per byte with an
+                         * opmask blend (VPMOVB2M + VPBLENDMB).
+                         *
+                         * Note VSHUFI64X2's immediate is NOT VPERM2I128's. At 256-bit VSHUFI64X2 uses
+                         * one selector bit per destination lane (imm[0] picks src1's low/high lane into
+                         * dst-low, imm[1] picks src2's low/high lane into dst-high), whereas VPERM2I128
+                         * uses two bits per lane. So with both sources equal to the input, 0x00 selects
+                         * the low lane into both halves and 0x03 selects the high lane into both halves
+                         * - the VSHUFI64X2 equivalents of the VPERM2I128 0x00 / 0x11 used in the VEX
+                         * path below. (VPERM2I128's 0x11 on VSHUFI64X2 would yield [high, low], wrong.)
+                         */
+                        Register ktmpReg = asRegister(ktmp);
 
-                    // Find the elements that are collected from the second YMM half
-                    VexRVMIOp.VPERM2I128.emit(masm, YMM, xtmp2Reg, sourceReg, sourceReg, 0x11);
-                    VexRVMOp.VPSHUFB.encoding(encoding).emit(masm, YMM, xtmp2Reg, xtmp2Reg, indexReg);
+                        // Find the elements that are collected from the first YMM half
+                        VexRVMIOp.EVSHUFI64X2.emit(masm, YMM, xtmp1Reg, sourceReg, sourceReg, 0x00);
+                        VexRVMOp.EVPSHUFB.emit(masm, YMM, xtmp1Reg, xtmp1Reg, indexReg);
 
-                    // Blend the results, the 5-th bit of the index vector is the selector (0 - 15
-                    // has the 5-th bit being 0 while 16 - 31 has the 5-bit being 1)
-                    // Shift the 5-th bit to the position of the sign bit to use vpblendvb
-                    VexShiftOp.VPSLLD.encoding(encoding).emit(masm, YMM, xtmp3Reg, indexReg, 3);
-                    VexRVMROp.VPBLENDVB.emit(masm, YMM, asRegister(result), xtmp3Reg, xtmp1Reg, xtmp2Reg);
+                        // Find the elements that are collected from the second YMM half
+                        VexRVMIOp.EVSHUFI64X2.emit(masm, YMM, xtmp2Reg, sourceReg, sourceReg, 0x03);
+                        VexRVMOp.EVPSHUFB.emit(masm, YMM, xtmp2Reg, xtmp2Reg, indexReg);
+
+                        // The 5-th bit of each index selects the half; move it to the byte's sign
+                        // bit, turn it into an opmask, and blend (mask set -> take the second half).
+                        VexShiftOp.EVPSLLD.emit(masm, YMM, xtmp3Reg, indexReg, 3);
+                        VexRMOp.EVPMOVB2M.emit(masm, YMM, ktmpReg, xtmp3Reg);
+                        VexRVMOp.EVPBLENDMB.emit(masm, YMM, asRegister(result), xtmp1Reg, xtmp2Reg, ktmpReg);
+                    } else {
+                        // Find the elements that are collected from the first YMM half
+                        VexRVMIOp.VPERM2I128.emit(masm, YMM, xtmp1Reg, sourceReg, sourceReg, 0x00);
+                        VexRVMOp.VPSHUFB.encoding(encoding).emit(masm, YMM, xtmp1Reg, xtmp1Reg, indexReg);
+
+                        // Find the elements that are collected from the second YMM half
+                        VexRVMIOp.VPERM2I128.emit(masm, YMM, xtmp2Reg, sourceReg, sourceReg, 0x11);
+                        VexRVMOp.VPSHUFB.encoding(encoding).emit(masm, YMM, xtmp2Reg, xtmp2Reg, indexReg);
+
+                        // Blend the results, the 5-th bit of the index vector is the selector (0 - 15
+                        // has the 5-th bit being 0 while 16 - 31 has the 5-bit being 1)
+                        // Shift the 5-th bit to the position of the sign bit to use vpblendvb
+                        VexShiftOp.VPSLLD.encoding(encoding).emit(masm, YMM, xtmp3Reg, indexReg, 3);
+                        VexRVMROp.VPBLENDVB.emit(masm, YMM, asRegister(result), xtmp3Reg, xtmp1Reg, xtmp2Reg);
+                    }
                 }
                 case ZMM -> {
                     Register sourceReg = asRegister(source);

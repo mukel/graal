@@ -41,6 +41,7 @@ import java.util.EnumSet;
 import jdk.graal.compiler.asm.Label;
 import jdk.graal.compiler.asm.amd64.AMD64Address;
 import jdk.graal.compiler.asm.amd64.AMD64Assembler;
+import jdk.graal.compiler.asm.amd64.AMD64BaseAssembler;
 import jdk.graal.compiler.asm.amd64.AMD64MacroAssembler;
 import jdk.graal.compiler.asm.amd64.AVXKind.AVXSize;
 import jdk.graal.compiler.code.DataSection;
@@ -207,18 +208,36 @@ public abstract class AMD64ComplexVectorOp extends AMD64LIRInstruction {
         return temp;
     }
 
-    protected Value[] allocateVectorRegisters(LIRGeneratorTool tool, JavaKind valueKind, int n) {
-        return allocateVectorRegisters(tool, LIRKind.value(getVectorKind(valueKind)), n);
+    protected Value[] allocateVectorRegisters(LIRGeneratorTool tool, JavaKind valueKind, int n, boolean requireLowRegisters) {
+        return allocateVectorRegisters(tool, LIRKind.value(getVectorKind(valueKind)), n, requireLowRegisters);
     }
 
-    protected Value[] allocateVectorRegisters(LIRGeneratorTool tool, Stride stride, int n) {
-        return allocateVectorRegisters(tool, LIRKind.value(getVectorKind(stride)), n);
+    protected Value[] allocateVectorRegisters(LIRGeneratorTool tool, Stride stride, int n, boolean requireLowRegisters) {
+        return allocateVectorRegisters(tool, LIRKind.value(getVectorKind(stride)), n, requireLowRegisters);
     }
 
-    protected Value[] allocateVectorRegisters(LIRGeneratorTool tool, LIRKind kind, int n) {
+    /** Number of xmm0-15 registers this op has already handed out as low-pinned temps. */
+    private int pinnedLowVectorRegisters;
+
+    /**
+     * Allocates {@code n} vector registers. When {@code requireLowRegisters} is set and full
+     * AVX-512 is available, the registers are pinned to xmm0-15. This is required for ops that emit
+     * VEX instructions with no same-semantics EVEX lowering in the surrounding code (e.g.
+     * VPERM2I128, VPMOVMSKB, VPCMPEQ*, VPHADDD, VPTEST), and therefore cannot encode the high
+     * registers (xmm16-31) the allocator would otherwise be free to choose. Repeated low-pinned
+     * allocations within one op receive distinct registers; their combined total must fit within
+     * xmm0-15.
+     */
+    protected Value[] allocateVectorRegisters(LIRGeneratorTool tool, LIRKind kind, int n, boolean requireLowRegisters) {
+        boolean pinLow = requireLowRegisters && supports(tool.target(), runtimeCheckedCPUFeatures, AMD64BaseAssembler.FULL_AVX512_FEATURES);
+        GraalError.guarantee(!pinLow || pinnedLowVectorRegisters + n <= AMD64.xmmRegistersSSE.size(),
+                        "cannot pin %d more vector registers to xmm0-15 (%d already pinned)", n, pinnedLowVectorRegisters);
         Value[] vectors = new Value[n];
         for (int i = 0; i < vectors.length; i++) {
-            vectors[i] = tool.newVariable(kind);
+            vectors[i] = pinLow ? AMD64.xmmRegistersSSE.get(pinnedLowVectorRegisters + i).asValue(kind) : tool.newVariable(kind);
+        }
+        if (pinLow) {
+            pinnedLowVectorRegisters += n;
         }
         return vectors;
     }

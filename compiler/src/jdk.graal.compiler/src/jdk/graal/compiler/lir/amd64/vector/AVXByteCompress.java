@@ -63,6 +63,14 @@ import jdk.vm.ci.meta.Value;
  * ({@link CompressBytesWithMaskOp}), with one bit per input byte lane. If the mask is still in
  * vector form (vector of {@code 0x00}/{@code 0xFF} bytes), the frontend must first extract the
  * scalar mask with {@code VPMOVMSKB}. Native AVX-512 byte-compress uses dedicated EVEX ops.
+ *
+ * Note: this op is reachable under full AVX-512 (AVX2+POPCNT without AVX512_VBMI2) and emits
+ * VEX-named opcodes (VPSHUFB, VPXOR, VPOR, VPADDB, VEXTRACTI128, VPSLLDQ, ...) on allocator-assigned
+ * vector registers, which may be xmm16-31. Those registers are NOT pinned low; this is safe only
+ * because every such opcode has a linked EVEX variant, so the assembler auto-promotes it to EVEX for
+ * high registers (unlike the VEX-only ops that have no EVEX form and require low-register pinning -
+ * see {@code AMD64ComplexVectorOp.allocateVectorRegisters(..., requireLowRegisters)}). The variant
+ * links are guarded by {@code AMD64AutoPromoteHighRegisterEncodingTest}.
  */
 public final class AVXByteCompress {
 

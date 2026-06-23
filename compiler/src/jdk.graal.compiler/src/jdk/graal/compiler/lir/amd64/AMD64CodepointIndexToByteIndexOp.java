@@ -106,7 +106,8 @@ public final class AMD64CodepointIndexToByteIndexOp extends AMD64ComplexVectorOp
         this.result = result;
 
         this.temp = allocateTempRegisters(tool, AMD64Kind.QWORD, 2);
-        this.vectorTemp = allocateVectorRegisters(tool, JavaKind.Byte, inputEncoding == InputEncoding.UTF_16_FOREIGN_ENDIAN ? 6 : 5);
+        // These temps feed VEX-only PCMPEQ / PMOVMSKB, which cannot encode xmm16-31; pin low.
+        this.vectorTemp = allocateVectorRegisters(tool, JavaKind.Byte, inputEncoding == InputEncoding.UTF_16_FOREIGN_ENDIAN ? 6 : 5, true);
     }
 
     @Override

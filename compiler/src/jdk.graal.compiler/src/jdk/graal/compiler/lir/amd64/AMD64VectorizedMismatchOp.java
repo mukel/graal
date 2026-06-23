@@ -94,7 +94,8 @@ public final class AMD64VectorizedMismatchOp extends AMD64ComplexVectorOp {
         this.lengthValue = length;
         this.strideValue = stride;
         this.temp = allocateTempRegisters(tool, AMD64Kind.QWORD, 2);
-        this.vectorTemp = allocateVectorRegisters(tool, JavaKind.Byte, 3);
+        // These temps feed VEX-only VPCMPEQB / VPERM2I128, which cannot encode xmm16-31; pin low.
+        this.vectorTemp = allocateVectorRegisters(tool, JavaKind.Byte, 3, true);
     }
 
     /**

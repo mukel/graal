@@ -39,7 +39,6 @@ import jdk.graal.compiler.asm.amd64.AMD64Assembler;
 import jdk.graal.compiler.asm.amd64.AMD64Assembler.ConditionFlag;
 import jdk.graal.compiler.asm.amd64.AMD64MacroAssembler;
 import jdk.graal.compiler.asm.amd64.AVXKind.AVXSize;
-import jdk.graal.compiler.core.common.LIRKind;
 import jdk.graal.compiler.core.common.Stride;
 import jdk.graal.compiler.debug.GraalError;
 import jdk.graal.compiler.lir.LIRInstructionClass;
@@ -78,8 +77,12 @@ public final class AMD64IndexOfZeroOp extends AMD64ComplexVectorOp {
         this.stride = stride;
         this.resultValue = result;
         this.arrayReg = arrayPtr;
-        this.vectorCmp = tool.newVariable(LIRKind.value(getVectorKind(stride)));
-        this.vectorArray = allocateVectorRegisters(tool, stride, VECTOR_LOOP_UNROLL);
+        /*
+         * These temps feed VEX-only PCMPEQ / PTEST / PMOVMSKB, which cannot encode xmm16-31; pin
+         * them to distinct xmm0-15 under full AVX-512.
+         */
+        this.vectorCmp = allocateVectorRegisters(tool, stride, 1, true)[0];
+        this.vectorArray = allocateVectorRegisters(tool, stride, VECTOR_LOOP_UNROLL, true);
         this.generalPurposeTmpValues = allocateTempRegisters(tool, AMD64Kind.QWORD, 2);
         GraalError.guarantee(supports(tool.target(), runtimeCheckedCPUFeatures, CPUFeature.SSE4_1), "needs at least SSE4.1 support");
         // Note: on SVM, this check is not sufficient - instead there's a check in

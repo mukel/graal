@@ -36,7 +36,7 @@ import java.util.Objects;
 @SuppressWarnings("unused")
 public class CVRegisterUtil {
 
-    private static final int MAX_JAVA_REGISTER_NUMBER = AMD64.xmm15.number;
+    private static final int MAX_JAVA_REGISTER_NUMBER = AMD64.xmm31.number;
 
     /* Register definitions */
 
@@ -136,6 +136,23 @@ public class CVRegisterUtil {
     private static final short CV_AMD64_XMM14 = 258;
     private static final short CV_AMD64_XMM15 = 259;
 
+    private static final short CV_AMD64_XMM16 = 694;
+    private static final short CV_AMD64_XMM17 = 695;
+    private static final short CV_AMD64_XMM18 = 696;
+    private static final short CV_AMD64_XMM19 = 697;
+    private static final short CV_AMD64_XMM20 = 698;
+    private static final short CV_AMD64_XMM21 = 699;
+    private static final short CV_AMD64_XMM22 = 700;
+    private static final short CV_AMD64_XMM23 = 701;
+    private static final short CV_AMD64_XMM24 = 702;
+    private static final short CV_AMD64_XMM25 = 703;
+    private static final short CV_AMD64_XMM26 = 704;
+    private static final short CV_AMD64_XMM27 = 705;
+    private static final short CV_AMD64_XMM28 = 706;
+    private static final short CV_AMD64_XMM29 = 707;
+    private static final short CV_AMD64_XMM30 = 708;
+    private static final short CV_AMD64_XMM31 = 709;
+
     private static final short CV_AMD64_XMM0_0 = 162;
     private static final short CV_AMD64_XMM1_0 = 166;
     private static final short CV_AMD64_XMM2_0 = 170;
@@ -232,6 +249,28 @@ public class CVRegisterUtil {
                         new CvRegDef(AMD64.xmm13, CV_AMD64_XMM13_0, CV_AMD64_XMM13L),
                         new CvRegDef(AMD64.xmm14, CV_AMD64_XMM14_0, CV_AMD64_XMM14L),
                         new CvRegDef(AMD64.xmm15, CV_AMD64_XMM15_0, CV_AMD64_XMM15L),
+                        /*
+                         * Unlike xmm0-15, CodeView defines no 32-/64-bit sub-register codes for
+                         * xmm16-31 (only the whole-register codes 694-709), so the same code is used
+                         * for both the 4- and 8-byte views. A debugger reads a sub-128-bit value
+                         * from the low bytes of the register, which is correct for little-endian.
+                         */
+                        new CvRegDef(AMD64.xmm16, CV_AMD64_XMM16, CV_AMD64_XMM16),
+                        new CvRegDef(AMD64.xmm17, CV_AMD64_XMM17, CV_AMD64_XMM17),
+                        new CvRegDef(AMD64.xmm18, CV_AMD64_XMM18, CV_AMD64_XMM18),
+                        new CvRegDef(AMD64.xmm19, CV_AMD64_XMM19, CV_AMD64_XMM19),
+                        new CvRegDef(AMD64.xmm20, CV_AMD64_XMM20, CV_AMD64_XMM20),
+                        new CvRegDef(AMD64.xmm21, CV_AMD64_XMM21, CV_AMD64_XMM21),
+                        new CvRegDef(AMD64.xmm22, CV_AMD64_XMM22, CV_AMD64_XMM22),
+                        new CvRegDef(AMD64.xmm23, CV_AMD64_XMM23, CV_AMD64_XMM23),
+                        new CvRegDef(AMD64.xmm24, CV_AMD64_XMM24, CV_AMD64_XMM24),
+                        new CvRegDef(AMD64.xmm25, CV_AMD64_XMM25, CV_AMD64_XMM25),
+                        new CvRegDef(AMD64.xmm26, CV_AMD64_XMM26, CV_AMD64_XMM26),
+                        new CvRegDef(AMD64.xmm27, CV_AMD64_XMM27, CV_AMD64_XMM27),
+                        new CvRegDef(AMD64.xmm28, CV_AMD64_XMM28, CV_AMD64_XMM28),
+                        new CvRegDef(AMD64.xmm29, CV_AMD64_XMM29, CV_AMD64_XMM29),
+                        new CvRegDef(AMD64.xmm30, CV_AMD64_XMM30, CV_AMD64_XMM30),
+                        new CvRegDef(AMD64.xmm31, CV_AMD64_XMM31, CV_AMD64_XMM31),
         };
 
         for (CvRegDef def : compactRegDefs) {
@@ -241,23 +280,21 @@ public class CVRegisterUtil {
     }
 
     /*
-     * Convert a Java register number to a CodeView register code. In release mode, return -1 so
-     * caller can emit a warning and continue. In debug mode, throw an assert.
-     *
-     * This can (and has) happened when Graal is enhanced to use more registers but there is no test
-     * for that in the test suite.
+     * Convert a Java register number to a CodeView register code, or -1 if the register has no
+     * CodeView mapping - e.g. an opmask register (k1-k7, whose register numbers exceed
+     * MAX_JAVA_REGISTER_NUMBER) or any other allocatable register not represented here. The caller
+     * emits a warning and continues rather than failing, since such registers are legitimately
+     * allocatable (e.g. since AVX-512 enabled xmm16-31 and opmask) and may appear in debug info.
      */
     /* the CodeView code depends upon the register type and size */
     static short getCVRegister(int javaReg, int size) {
-        assert 0 <= javaReg && javaReg <= MAX_JAVA_REGISTER_NUMBER;
-        if (javaReg > MAX_JAVA_REGISTER_NUMBER) {
-            /* Register is unimplemented. */
+        if (javaReg < 0 || javaReg > MAX_JAVA_REGISTER_NUMBER) {
+            /* Register has no CodeView mapping (e.g. an opmask register). */
             return -1;
         }
         CvRegDef cvReg = javaToCvRegisters[javaReg];
-        assert cvReg != null;
         if (cvReg == null) {
-            /* Register is unimplemented. */
+            /* Register has no CodeView mapping. */
             return -1;
         }
         /* Sanity check */
@@ -271,8 +308,11 @@ public class CVRegisterUtil {
             default -> -1;
         };
 
-        /* Check for unimplemented size. */
-        assert cvCode != -1;
+        /*
+         * cvCode is -1 for an unrepresentable size - e.g. a 1- or 2-byte value held in an xmm
+         * register, whose CvRegDef only defines the 4- and 8-byte CodeView codes. The caller treats
+         * the negative result as "no mapping": it warns and skips the variable-location record.
+         */
         return cvCode;
     }
 

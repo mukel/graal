@@ -130,7 +130,8 @@ public final class AMD64ArrayRegionCompareToOp extends AMD64ComplexVectorOp {
         this.lengthValue = length;
         this.dynamicStridesValue = dynamicStrides;
 
-        this.vectorTemp = allocateVectorRegisters(tool, JavaKind.Byte, isVectorCompareSupported(tool.target(), runtimeCheckedCPUFeatures, argStrideA, argStrideB) ? 4 : 0);
+        // These temps feed VEX-only VPERM2I128 / VPMOVMSKB, which cannot encode xmm16-31; pin low.
+        this.vectorTemp = allocateVectorRegisters(tool, JavaKind.Byte, isVectorCompareSupported(tool.target(), runtimeCheckedCPUFeatures, argStrideA, argStrideB) ? 4 : 0, true);
     }
 
     @Override

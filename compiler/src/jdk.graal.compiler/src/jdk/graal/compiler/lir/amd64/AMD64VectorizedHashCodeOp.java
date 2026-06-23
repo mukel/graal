@@ -106,7 +106,8 @@ public final class AMD64VectorizedHashCodeOp extends AMD64ComplexVectorOp {
         this.arrayKind = arrayKind;
 
         this.temp = allocateTempRegisters(tool, QWORD, 5);
-        this.vectorTemp = allocateVectorRegisters(tool, JavaKind.Byte, 13);
+        // These temps feed VEX-only VPHADDD, which cannot encode xmm16-31; pin low.
+        this.vectorTemp = allocateVectorRegisters(tool, JavaKind.Byte, 13, true);
     }
 
     private static void arraysHashcodeElload(AMD64MacroAssembler masm, Register dst, AMD64Address src, JavaKind eltype) {

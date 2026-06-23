@@ -157,10 +157,9 @@ public final class AMD64CalcStringAttributesOp extends AMD64ComplexVectorOp {
         for (int i = 0; i < temp.length; i++) {
             temp[i] = tool.newVariable(LIRKind.value(AMD64Kind.QWORD));
         }
-        this.vectorTemp = new Value[getNumberOfRequiredVectorRegisters(encoding, supports(tool.target(), runtimeCheckedCPUFeatures, CPUFeature.AVX), assumeValid)];
-        for (int i = 0; i < vectorTemp.length; i++) {
-            vectorTemp[i] = tool.newVariable(LIRKind.value(getVectorKind(JavaKind.Byte)));
-        }
+        // These temps feed VEX-only VPTEST / VPERM2I128, which cannot encode xmm16-31; pin low.
+        this.vectorTemp = allocateVectorRegisters(tool, JavaKind.Byte,
+                        getNumberOfRequiredVectorRegisters(encoding, supports(tool.target(), runtimeCheckedCPUFeatures, CPUFeature.AVX), assumeValid), true);
     }
 
     @Override
